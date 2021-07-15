@@ -37,6 +37,8 @@ type RunOptions struct {
 	OutputFormat            string
 	SnapshotSvcAcct         string
 	ManifestBasedSnapshotOf string
+	CheckManifestLists      string
+	Repository              string
 	Threads                 int
 	MaxImageSize            int
 	SeverityThreshold       int
@@ -78,6 +80,13 @@ func RunPromoteCmd(opts *RunOptions) error {
 		if err := gcloud.ActivateServiceAccounts(opts.KeyFiles); err != nil {
 			return errors.Wrap(err, "activating service accounts")
 		}
+	}
+
+	if len(opts.CheckManifestLists) > 0 {
+		if len(opts.Repository) == 0 {
+			logrus.Fatalf("--repository flag is required")
+		}
+		return validateManifestLists(opts)
 	}
 
 	var (
@@ -294,7 +303,7 @@ necessarily mean that a new version of the image layer is available.`,
 			snapshot = rii.ToYAML(reg.YamlMarshalingOpts{})
 		}
 
-		fmt.Print(snapshot)
+		fmt.Println(snapshot)
 		return nil
 	}
 
@@ -370,6 +379,29 @@ necessarily mean that a new version of the image layer is available.`,
 		logrus.Info("********** FINISHED **********")
 	}
 
+	return nil
+}
+
+// validateManifestLists ONLY reads yaml at the moment.
+func validateManifestLists(opts *RunOptions) error {
+	pathToSnapshot := opts.CheckManifestLists
+	registry := reg.RegistryName(opts.Repository)
+	images := make([]reg.ImageWithDigestSlice, 0)
+	err := reg.ParseSnapshot(pathToSnapshot, &images)
+	if err != nil {
+		return err
+	}
+	imgs, err := reg.FilterParentImages(registry, &images)
+	if err != nil {
+		return err
+	}
+	for _, img := range imgs {
+		if reg.IsParentImageValid(registry, img) {
+			fmt.Println("PASSED parent validation: ", img.Name)
+		} else {
+			fmt.Println("FAILED parent validation: ", img.Name)
+		}
+	}
 	return nil
 }
 
